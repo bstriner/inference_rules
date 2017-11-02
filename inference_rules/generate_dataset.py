@@ -6,10 +6,10 @@ from inference_rules.parser import read_tuples, get_entities, get_relations, map
 from inference_rules.util import make_dir
 
 
-def generate_dataset(input_path, output_path, map):
+def generate_dataset(input_path, output_path, map=range(3)):
     make_dir(output_path)
     files = 'train', 'valid', 'test'
-    data = [list(read_tuples(input_path.format(f))) for f in files]
+    data = [list(read_tuples(input_path.format(f), map=map)) for f in files]
     entities = [get_entities(d) for d in data]
     relations = [get_relations(d) for d in data]
     for i, d in enumerate(data):
@@ -45,5 +45,3 @@ def generate_dataset(input_path, output_path, map):
     np.savez('{}/dataset.npz'.format(output_path), **savedata)
     save_list('{}/entities'.format(output_path), all_entities)
     save_list('{}/relations'.format(output_path), all_relations)
-
-

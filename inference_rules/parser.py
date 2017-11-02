@@ -1,7 +1,10 @@
-import numpy as np
 import csv
 import pickle
-def read_tuples(file, map=[0,1,2]):
+
+import numpy as np
+
+
+def read_tuples(file, map=[0, 1, 2]):
     with open(file, 'r') as f:
         for line in f:
             line = line.strip()
@@ -45,13 +48,14 @@ def map_triples(ts, emap, rmap):
         x[i, 2] = emap[t[2]]
     return x
 
+
 def save_list(path, data):
-    with open(path+'.csv', 'wb') as f:
+    with open(path + '.csv', 'wb') as f:
         w = csv.writer(f)
-        w.writerow(['Id','Name'])
-        for i,d in enumerate(data):
+        w.writerow(['Id', 'Name'])
+        for i, d in enumerate(data):
             w.writerow([i, d])
-    with open(path+'.pickle','wb') as f:
+    with open(path + '.pickle', 'wb') as f:
         pickle.dump(data, f)
 
 
@@ -61,8 +65,10 @@ def entity_types(triples, e_k, r_k, source=True):
         types[triples[i, 1], triples[i, 0 if source else 2]] = 1
     return types
 
+
 def entity_type_logits(triples, e_k, r_k, source=True, eps=1e-9):
-    return np.log(eps+entity_types(triples, e_k, r_k, source=source))
+    return np.log(eps + entity_types(triples, e_k, r_k, source=source))
+
 
 def load_pickle(file):
     with open(file, 'rb') as f:
