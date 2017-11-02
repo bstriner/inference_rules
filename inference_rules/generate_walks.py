@@ -154,6 +154,7 @@ def generate_validation_data(output_path, train, valid, r_k, max_depth, all_fact
 
 def generate_training_data(output_path, train, r_k, max_depth, splits=10, max_negative_samples=64):
     make_path(output_path)
+    print type(train)
     train_holdout = list(split_data(train, splits))
     train_facts = list(np.concatenate(list(train_holdout[j] for j in range(splits) if j != i), axis=0)
                        for i in range(splits))

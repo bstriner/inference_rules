@@ -139,7 +139,7 @@ def softmax_np(x, axis=-1):
 
 
 def split_data(data, k):
-    d = data//k
+    d = data.shape[0]//k
     for i in range(k):
         if i < k-1:
             yield data[d*i:d*(i+1)]

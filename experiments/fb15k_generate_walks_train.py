@@ -1,6 +1,6 @@
 import numpy as np
 
-from inference_rules.generate_walks import generate_validation_data
+from inference_rules.generate_walks import generate_training_data
 from inference_rules.parser import load_pickle
 
 
@@ -14,10 +14,12 @@ def main():
     r_k = len(relations)
     max_depth = 2
     max_negative_samples = 20
-    generate_validation_data(
+    splits = 10
+    generate_training_data(
         output_path=output_path,
         train=train,
         r_k=r_k,
+        splits=splits,
         max_depth=max_depth,
         max_negative_samples=max_negative_samples)
 
