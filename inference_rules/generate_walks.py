@@ -189,3 +189,33 @@ def generate_training_data(output_path, train, r_k, max_depth, splits=10, max_ne
         f.write("candidate_sampled: {}\n".format(candidate_sampled_tot))
         f.write("supplemented: {}\n".format(supplemented_tot))
         f.write("undersampled: {}\n".format(undersampled_tot))
+
+
+def generate_training_walks(output_path, facts, holdout, r_k, max_depth, max_negative_samples=64):
+    make_path(output_path)
+    walks, unreachable, trivial, candidate_sampled, supplemented, undersampled = generate_walks(
+        facts=facts,
+        holdouts=holdout,
+        max_depth=max_depth,
+        r_k=r_k,
+        max_negative_samples=max_negative_samples,
+        desc='Training Data')
+
+    with open(output_path, 'wb') as f:
+        pickle.dump(walks, f)
+    with open(output_path + '.txt', 'w') as f:
+        f.write("len(walks): {}\n".format(len(walks)))
+        f.write("unreachable: {}\n".format(unreachable))
+        f.write("trivial: {}\n".format(trivial))
+        f.write("candidate_sampled: {}\n".format(candidate_sampled))
+        f.write("supplemented: {}\n".format(supplemented))
+        f.write("undersampled: {}\n".format(undersampled))
+    with open(output_path + '.pickle', 'wb') as f:
+        data = {'walks': len(walks),
+                'unreachable': unreachable,
+                'trivial': trivial,
+                'candidate_sampled': candidate_sampled,
+                'supplemented': supplemented,
+                'undersampled': undersampled
+                }
+        pickle.dump(data, f)
