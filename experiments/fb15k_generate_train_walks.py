@@ -12,7 +12,7 @@ def main(argv):
     print "Processing split {}".format(split)
     dataset_path = 'output/FB15K/dataset'
     split_path = 'output/FB15K/splits/split-{}.npz'
-    output_path = 'output/FB15K/train_walks/walks-{}.pickle'
+    output_path = 'output/FB15K/train_walks/walks-{}'
     data = np.load(split_path.format(split))
     relations = load_pickle('{}/relations.pickle'.format(dataset_path))
     r_k = len(relations)

@@ -201,7 +201,7 @@ def generate_training_walks(output_path, facts, holdout, r_k, max_depth, max_neg
         max_negative_samples=max_negative_samples,
         desc='Training Data')
 
-    with open(output_path, 'wb') as f:
+    with open(output_path + '.pickle', 'wb') as f:
         pickle.dump(walks, f)
     with open(output_path + '.txt', 'w') as f:
         f.write("len(walks): {}\n".format(len(walks)))
@@ -210,7 +210,7 @@ def generate_training_walks(output_path, facts, holdout, r_k, max_depth, max_neg
         f.write("candidate_sampled: {}\n".format(candidate_sampled))
         f.write("supplemented: {}\n".format(supplemented))
         f.write("undersampled: {}\n".format(undersampled))
-    with open(output_path + '.pickle', 'wb') as f:
+    with open(output_path + '-stats.pickle', 'wb') as f:
         data = {'walks': len(walks),
                 'unreachable': unreachable,
                 'trivial': trivial,

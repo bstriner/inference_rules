@@ -7,6 +7,7 @@ from inference_rules.inference_walker_model import InferenceWalkerModel
 from inference_rules.initializers import uniform_initializer
 from inference_rules.parser import load_pickle
 from keras.regularizers import l1_l2
+from inference_rules.read_walks import read_walks
 
 def main():
     dataset_path = 'output/FB15K/dataset'
@@ -17,10 +18,11 @@ def main():
     train = data['train']
     valid = data['valid']
     test = data['test']
-    regularizer = l1_l2(1e-4, 1e-7)
-    processed_path = 'output/FB15K/processed'
-    with open('{}/train.pickle'.format(processed_path), 'rb') as f:
-        train_walks = pickle.load(f)
+    train_path = 'output/FB15K/train_walks/walks-{}.npz'
+    train_splits = 20
+    train_walks = read_walks(train_path, train_splits)
+
+    regularizer = l1_l2(1e-5, 1e-7)
 
     # Hyperparameters
     opt = Adam(3e-4)
