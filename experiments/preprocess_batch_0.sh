@@ -1,0 +1,10 @@
+nohup python3 fb15k_generate_train_walks.py 0 > 0.txt & disown
+nohup python3 fb15k_generate_train_walks.py 1 > 1.txt & disown
+nohup python3 fb15k_generate_train_walks.py 2 > 2.txt & disown
+nohup python3 fb15k_generate_train_walks.py 3 > 3.txt & disown
+nohup python3 fb15k_generate_train_walks.py 4 > 4.txt & disown
+nohup python3 fb15k_generate_train_walks.py 5 > 5.txt & disown
+nohup python3 fb15k_generate_train_walks.py 6 > 6.txt & disown
+nohup python3 fb15k_generate_train_walks.py 7 > 7.txt & disown
+nohup python3 fb15k_generate_train_walks.py 8 > 8.txt & disown
+nohup python3 fb15k_generate_train_walks.py 9 > 9.txt & disown
