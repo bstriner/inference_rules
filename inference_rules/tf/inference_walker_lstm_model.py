@@ -1,3 +1,4 @@
+import json
 import os
 import pickle
 
@@ -11,9 +12,16 @@ from tensorflow.contrib.rnn import LSTMCell
 from tensorflow.python.ops.init_ops import RandomUniform
 
 
-def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, sample_queries, sample_count,
+def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, sample_queries, sample_count, params, mode,
              regularizer=None,
              layers=2):
+    if params.rectifier == 'exp':
+        rectifier = tf.exp
+    elif params.rectifier == 'softplus':
+        rectifier = tf.nn.softplus
+    else:
+        raise ValueError("Unknown rectifier: {}".format(params.rectifier))
+
     betas = 0.
     lstms = []
     initializer = RandomUniform(minval=-0.05, maxval=0.05)
@@ -44,22 +52,33 @@ def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, samp
         #                    kernel_initializer=initializer)
         # h = tf.layers.dense(out, units=2, name='beta_dense', reuse=tf.AUTO_REUSE, kernel_initializer=initializer)
         with tf.variable_scope('beta_dense_scope', reuse=tf.AUTO_REUSE):
-            out = tf.layers.dense(out, units=2, kernel_initializer=initializer)
+            if params.sigmoid_output:
+                beta = tf.layers.dense(out, units=1, kernel_initializer=initializer)  # (wn, 1)
+            else:
+                out = tf.layers.dense(out, units=2, kernel_initializer=initializer)
+                beta = rectifier(out, name='beta_exp_{}'.format(depth))  # (wn, 2)
+        tf.add_to_collection('BETAS', beta)
         # out = beta_dense.apply(out)
         # out = tf.layers.dense(out, units=2, name='beta_dense_{}'.format(depth), kernel_initializer=initializer)
-        #beta = tf.nn.relu(out, name='beta_relu_{}'.format(depth))  # (wn, 2)
-        beta = tf.exp(out, name='beta_exp_{}'.format(depth))  # (wn, 2)
+        # beta = tf.nn.relu(out, name='beta_relu_{}'.format(depth))  # (wn, 2)
         assignment_one_hot = tf.one_hot(assignment, sample_count,
                                         name='assignment_one_hot_{}'.format(depth))  # (wn, sample_count)
         betas += tf.tensordot(assignment_one_hot, beta, axes=(0, 0),
                               name='beta_assignment_{}'.format(depth))  # (sample_count, 2)
 
-    bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 2],
+    if params.sigmoid_output:
+        bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 1],
                                trainable=True, dtype=tf.float32, initializer=tf.initializers.zeros)
-    bias = tf.exp(tf.gather(bias_var, sample_queries, axis=0))
-    #bias = tf.nn.relu(tf.gather(bias_var, sample_queries, axis=0), name='bias_relu')
+        bias = tf.gather(bias_var, sample_queries, axis=0)
+        tf.summary.histogram('bias', bias)
+    else:
+        bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 2],
+                                   trainable=True, dtype=tf.float32, initializer=tf.initializers.zeros)
+        bias = rectifier(tf.gather(bias_var, sample_queries, axis=0)) + EPSILON
+        tf.summary.histogram('bias_0', bias[:,0])
+        tf.summary.histogram('bias_1', bias[:,1])
+    # bias = tf.nn.relu(tf.gather(bias_var, sample_queries, axis=0), name='bias_relu')
     betas += bias
-    betas += EPSILON
     return betas
 
 
@@ -76,13 +95,24 @@ def inference_fn(features, mode, params):
     # targets = features['targets']
     sample_count = tf.shape(sample_queries)[0]
     walk_queries = [tf.gather(sample_queries, walk_assignments[i]) for i in range(rule_depth)]
+    for wq in walk_queries:
+        tf.add_to_collection("WALK_QUERIES", wq)
+    for w in walks:
+        tf.add_to_collection("WALKS", w)
+    for wa in walk_assignments:
+        tf.add_to_collection("WALK_ASSIGNMENTS", wa)
+
 
     betas = run_lstm(walks=walks, walk_assignments=walk_assignments, walk_queries=walk_queries,
-                     units=units, rule_depth=rule_depth, r_k=r_k,
+                     units=units, rule_depth=rule_depth, r_k=r_k, params=params, mode=mode,
                      sample_queries=sample_queries, sample_count=sample_count, layers=2)
-    tf.summary.histogram('betas_0', betas[:, 0])
-    tf.summary.histogram('betas_1', betas[:, 1])
-    expected_p = tf.gather(betas, 0, axis=1) / tf.reduce_sum(betas, axis=1)
+    if params.sigmoid_output:
+        tf.summary.histogram('betas', betas[:, 0])
+        expected_p = tf.sigmoid(betas[:, 0])
+    else:
+        tf.summary.histogram('betas_0', betas[:, 0])
+        tf.summary.histogram('betas_1', betas[:, 1])
+        expected_p = tf.gather(betas, 0, axis=1) / tf.reduce_sum(betas, axis=1)
     tf.summary.histogram('expected_p', expected_p)
     return expected_p
 
@@ -91,53 +121,63 @@ def cross_entropy(labels, p):
     return -tf.reduce_mean((labels * tf.log(EPSILON + p)) + ((1. - labels) * tf.log(EPSILON + 1. - p)))
 
 
-def model_fn(features, labels, mode, params):
-    # Loss
-    expected_p = inference_fn(features, mode, params)
-    #logits = tf.log(expected_p)
-    smooth_labels = tf.cast(labels, tf.float32)
-    if params.smoothing > 0:
-        smooth_labels = (smooth_labels * (1.-params.smoothing))+(params.smoothing/2.)
-    #loss = tf.reduce_mean(
-    #    tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits))
-    loss = cross_entropy(labels=smooth_labels, p=expected_p)
-    classes = tf.greater(expected_p, 0.5)
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        predictions = {
-            "classes": classes
-        }
-        return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
-    else:
-        # Calculate Loss (for both TRAIN and EVAL modes)
-        if mode == tf.estimator.ModeKeys.TRAIN:
-            eq = tf.equal(tf.cast(classes, tf.int32), tf.cast(labels, tf.int32))
-            train_accuracy = tf.reduce_mean(tf.cast(eq, tf.float32))
-            tf.summary.scalar('train_accuracy', train_accuracy)
-            lr = tf.train.exponential_decay(params.lr,
-                                            decay_rate=params.decay_rate,
-                                            decay_steps=params.decay_steps,
-                                            global_step=tf.train.get_global_step(),
-                                            name='learning_rate',
-                                            staircase=False)
-            tf.summary.scalar('learning_rate', lr)
-            if params.optimizer == 'adam':
-                optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-            elif params.optimizer == 'momentum':
-                optimizer = tf.train.MomentumOptimizer(learning_rate=lr, momentum=params.momentum)
-            elif params.optimizer == 'rmsprop':
-                optimizer = tf.train.RMSPropOptimizer(learning_rate=lr, momentum=params.momentum)
-            else:
-                raise ValueError("Unknown optimizer: {}".format(params.optimizer))
-            print("Trainable: {}".format(list(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))))
-            train_op = optimizer.minimize(
-                loss=loss,
-                global_step=tf.train.get_global_step())
-            return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+def make_model_fn(relations):
+    def model_fn(features, labels, mode, params):
+        # Loss
+        expected_p = inference_fn(features, mode, params)
+        # logits = tf.log(expected_p)
+        classes = tf.greater(expected_p, 0.5)
+        if mode == tf.estimator.ModeKeys.PREDICT:
+            predictions = {
+                "classes": classes
+            }
+            return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
         else:
-            # Add evaluation metrics (for EVAL mode)
-            accuracy = tf.metrics.accuracy(labels=labels, predictions=classes, name='accuracy')
-            eval_metric_ops = {"accuracy": accuracy}
-            return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
+            smooth_labels = tf.cast(labels, tf.float32)
+            if params.smoothing > 0:
+                smooth_labels = (smooth_labels * (1. - params.smoothing)) + (params.smoothing / 2.)
+            # loss = tf.reduce_mean(
+            #    tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits))
+            loss = cross_entropy(labels=smooth_labels, p=expected_p)
+            if mode == tf.estimator.ModeKeys.TRAIN:
+                eq = tf.equal(tf.cast(classes, tf.int32), tf.cast(labels, tf.int32))
+                train_accuracy = tf.reduce_mean(tf.cast(eq, tf.float32))
+                tf.summary.scalar('train_accuracy', train_accuracy)
+                lr = tf.train.exponential_decay(params.lr,
+                                                decay_rate=params.decay_rate,
+                                                decay_steps=params.decay_steps,
+                                                global_step=tf.train.get_global_step(),
+                                                name='learning_rate',
+                                                staircase=False)
+                tf.summary.scalar('learning_rate', lr)
+                if params.optimizer == 'adam':
+                    optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+                elif params.optimizer == 'momentum':
+                    optimizer = tf.train.MomentumOptimizer(learning_rate=lr, momentum=params.momentum)
+                elif params.optimizer == 'rmsprop':
+                    optimizer = tf.train.RMSPropOptimizer(learning_rate=lr, momentum=params.momentum)
+                else:
+                    raise ValueError("Unknown optimizer: {}".format(params.optimizer))
+                print("Trainable: {}".format(list(tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES))))
+                train_op = optimizer.minimize(
+                    loss=loss,
+                    global_step=tf.train.get_global_step())
+                return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
+            else:
+                # Binary accuracy
+                accuracy_binary = tf.metrics.accuracy(labels=labels, predictions=classes, name='accuracy_binary')
+                # Top 1 accuracy
+                qg = features['query_groups']  # (n, 2)
+                score_shape = tf.reduce_max(qg, axis=0) + 1
+                scores = tf.scatter_nd(indices=qg, updates=expected_p, shape=score_shape)
+                top_score = tf.argmax(scores, axis=1)
+                true_labels = tf.zeros_like(top_score)
+                accuracy_at_1 = tf.metrics.accuracy(labels=true_labels, predictions=top_score, name='accuracy_at_1')
+                # Metrics
+                eval_metric_ops = {'accuracy_at_1': accuracy_at_1, 'accuracy_binary': accuracy_binary}
+                return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
+
+    return model_fn
 
 
 def make_input_fn(rule_depth, evaluation=False):
@@ -159,6 +199,7 @@ def make_input_fn(rule_depth, evaluation=False):
 
     return input_fn
 
+
 class FeedFnHook(SessionRunHook):
     def __init__(self, path, batch_size, rule_depth, evaluation=False):
         self.path = path
@@ -169,8 +210,7 @@ class FeedFnHook(SessionRunHook):
         self.placeholder_walks = None
         self.placeholder_assignments = None
         self.placeholder_query_groups = None
-        self.loaded = False
-        self.evaluation=evaluation
+        self.evaluation = evaluation
         walks = np.load(os.path.join(path, 'walks.npz'))
         self.pos_walks = [walks['pos_walks_{}'.format(i)] for i in range(rule_depth)]
         self.neg_walks = [walks['neg_walks_{}'.format(i)] for i in range(rule_depth)]
@@ -188,10 +228,8 @@ class FeedFnHook(SessionRunHook):
         if self.evaluation:
             self.placeholder_query_groups = graph.get_tensor_by_name('query_groups:0')
 
-        self.loaded = True
-
-    def build_feed_dict(self, run_context):
-        self.load_placeholders(run_context.session.graph)
+    def build_feed_dict(self, graph):
+        self.load_placeholders(graph)
         bwalks = [[] for _ in range(self.rule_depth)]
         bassignments = [[] for _ in range(self.rule_depth)]
         btargets = []
@@ -216,7 +254,8 @@ class FeedFnHook(SessionRunHook):
             # print("Pos: {}".format(bwalk))
             neg_ids = walk['neg_ids']
             neg_count_t = min([neg_count, len(neg_ids)])
-            #negid = np.random.random_integers(low=0, high=len(neg_ids) - 1, size=(neg_count_t,))
+            assert neg_count_t > 0
+            # negid = np.random.random_integers(low=0, high=len(neg_ids) - 1, size=(neg_count_t,))
             negid = np.random.choice(a=range(len(neg_ids)), replace=False, size=(neg_count_t,))
             for j, negidt in enumerate(negid):
                 for d, bwalkslice in enumerate(neg_ids[negidt]):
@@ -227,11 +266,11 @@ class FeedFnHook(SessionRunHook):
                 btargets.append(0)
                 bqueries.append(walk['r'])
                 if self.evaluation:
-                    bquery_groups.append([i, 1+j])
+                    bquery_groups.append([i, 1 + j])
                 walk_counter += 1
-            # print("Neg: {}".format(bwalk))
-            # print("R: {}".format(walk['r']))
-            # raise ValueError()
+                # print("Neg: {}".format(bwalk))
+                # print("R: {}".format(walk['r']))
+                # raise ValueError()
         bwalks = [np.concatenate(bwalk, axis=0) for bwalk in bwalks]
         bassignments = [np.concatenate(bassignment, axis=0) for bassignment in bassignments]
         btargets = np.array(btargets, dtype=np.int32)
@@ -247,70 +286,70 @@ class FeedFnHook(SessionRunHook):
 
     def before_run(self, run_context):
         # if not self.loaded:
-        feed_dict = self.build_feed_dict(run_context=run_context)
-        return SessionRunArgs(
-            fetches=None, feed_dict=feed_dict)
+        feed_dict = self.build_feed_dict(graph=run_context.session.graph)
+        return SessionRunArgs(fetches=None, feed_dict=feed_dict)
 
 
-"""
-class LogPredictionsHook(SessionRunHook):
-    def __init__(self, every_n_iter=None, every_n_secs=None):
-        if every_n_iter is not None and every_n_iter <= 0:
-            raise ValueError("invalid every_n_iter=%s." % every_n_iter)
-        self._timer = (
-            SecondOrStepTimer(every_secs=every_n_secs, every_steps=every_n_iter))
-
-    def begin(self):
-        self._timer.reset()
-        self._iter_count = 0
-
-    def before_run(self, run_context):  # pylint: disable=unused-argument
-        self._should_trigger = self._timer.should_trigger_for_step(self._iter_count)
-        if self._should_trigger:
-            return SessionRunArgs(self._current_tensors)
-        else:
-            return None
-
-    def after_run(self, run_context, run_values):
-        self._iter_count += 1
-"""
+from .plugin_write_rules import PluginWriteRules
 
 
-def experiment_fn(run_config, hparams):
-    path = tf.flags.FLAGS.train_dir
-    estimator = tf.estimator.Estimator(
-        model_fn=model_fn,
-        config=run_config,
-        params=hparams)
-    return tf.contrib.learn.Experiment(
-        estimator=estimator,
-        train_input_fn=make_input_fn(hparams.rule_depth),
-        train_monitors=[FeedFnHook(path=path, batch_size=hparams.batch_size, rule_depth=hparams.rule_depth)],
-        eval_hooks=[FeedFnHook(path=path, batch_size=hparams.batch_size, rule_depth=hparams.rule_depth)],
-        eval_input_fn=make_input_fn(hparams.rule_depth))
+def make_experiment_fn(relations):
+    def experiment_fn(run_config, hparams):
+        train_path = tf.flags.FLAGS.train_dir
+        valid_path = tf.flags.FLAGS.valid_dir
+        estimator = tf.estimator.Estimator(
+            model_fn=make_model_fn(relations=relations),
+            config=run_config,
+            params=hparams)
+        plugin = PluginWriteRules(estimator=estimator,
+                                  input_fn=make_input_fn(hparams.rule_depth, evaluation=True),
+                                  relations=relations,
+                                  rule_depth=hparams.rule_depth,
+                                  input_hook=FeedFnHook(path=valid_path, batch_size=hparams.batch_size,
+                                                        rule_depth=hparams.rule_depth, evaluation=True))
+        experiment = tf.contrib.learn.Experiment(
+            estimator=estimator,
+            train_input_fn=make_input_fn(hparams.rule_depth),
+            eval_input_fn=make_input_fn(hparams.rule_depth, evaluation=True),
+            train_monitors=[FeedFnHook(path=train_path, batch_size=hparams.batch_size, rule_depth=hparams.rule_depth)],
+            eval_hooks=[FeedFnHook(path=valid_path, batch_size=hparams.batch_size,
+                                   rule_depth=hparams.rule_depth, evaluation=True), plugin]
+        )
+
+        return experiment
+
+    return experiment_fn
 
 
 def main(_argv):
-    print("model_dir={}".format(tf.flags.FLAGS.model_dir))
+    model_dir = tf.flags.FLAGS.model_dir
+    print("model_dir={}".format(model_dir))
     with open('../experiments/output/FB15K/dataset/relations.pickle', 'rb') as f:
         relations = pickle.load(f)
     r_k = len(relations)
-    run_config = tf.contrib.learn.RunConfig(model_dir=tf.flags.FLAGS.model_dir)
+    run_config = tf.contrib.learn.RunConfig(model_dir=model_dir)
     hparams = tf.contrib.training.HParams(lr=0.001,
                                           momentum=0.9,
                                           rule_depth=2,
-                                          units=512,
+                                          units=256,
                                           # rule_count=256,
                                           decay_rate=0.1,
                                           decay_steps=300000,
-                                          sigmoid_output=False,
+                                          sigmoid_output=True,
+                                          rectifier='softplus',
                                           r_k=r_k,
                                           smoothing=0.1,
                                           optimizer='adam',
                                           batch_size=64)
     hparams.parse(tf.flags.FLAGS.hparams)
+    os.makedirs(model_dir, exist_ok=True)
+    with open(os.path.join(model_dir, 'configuration-flags.json'), 'w') as f:
+        json.dump(tf.flags.FLAGS.__flags, f)
+    with open(os.path.join(model_dir, 'configuration-hparams.json'), 'w') as f:
+        json.dump(hparams.values(), f)
+
     estimator = tf.contrib.learn.learn_runner.run(
-        experiment_fn=experiment_fn,
+        experiment_fn=make_experiment_fn(relations=relations),
         run_config=run_config,
         schedule=tf.flags.FLAGS.schedule,
         hparams=hparams)

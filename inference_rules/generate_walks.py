@@ -46,6 +46,7 @@ def generate_walks(facts,
                    r_k,
                    max_negative_samples,
                    desc='generating walks',
+                   allow_non_candidate=False,
                    all_facts=None):
     all_samples = []
 
@@ -99,7 +100,7 @@ def generate_walks(facts,
                                                 max_negative_samples=max_negative_samples,
                                                 max_depth=max_depth)
             # Settle for anything reachable that is not correct
-            if len(neg_walks) < max_negative_samples:
+            if allow_non_candidate and (len(neg_walks) < max_negative_samples):
                 valid_negative_set = [e for e in reachable_set if (e not in correct_set)]
                 addl_walks = walks_from_negative_set(train_map=train_map,
                                                      s=s,
@@ -131,11 +132,13 @@ def generate_walks(facts,
     return all_samples, unreachable, trivial, candidate_sampled, supplemented, undersampled
 
 
-def generate_validation_data(output_path, train, valid, r_k, max_depth, all_facts, max_negative_samples=64):
+def generate_validation_data(output_path, train, valid, r_k, max_depth, all_facts,
+                   allow_non_candidate=False,max_negative_samples=64):
     make_path(output_path)
     walks, unreachable, trivial, candidate_sampled, supplemented, undersampled = generate_walks(
         facts=train,
         holdouts=valid,
+        allow_non_candidate=allow_non_candidate,
         max_depth=max_depth,
         all_facts=all_facts,
         r_k=r_k,
@@ -152,9 +155,9 @@ def generate_validation_data(output_path, train, valid, r_k, max_depth, all_fact
         f.write("undersampled: {}\n".format(undersampled))
 
 
-def generate_training_data(output_path, train, r_k, max_depth, splits=10, max_negative_samples=64):
+def generate_training_data(output_path, train, r_k, max_depth, splits=10,allow_non_candidate=False,
+                           max_negative_samples=64):
     make_path(output_path)
-    print type(train)
     train_holdout = list(split_data(train, splits))
     train_facts = list(np.concatenate(list(train_holdout[j] for j in range(splits) if j != i), axis=0)
                        for i in range(splits))
@@ -170,6 +173,7 @@ def generate_training_data(output_path, train, r_k, max_depth, splits=10, max_ne
             facts=train_facts[i],
             holdouts=train_holdout[i],
             max_depth=max_depth,
+            allow_non_candidate=allow_non_candidate,
             r_k=r_k,
             max_negative_samples=max_negative_samples,
             desc='Split {}'.format(i))
@@ -191,7 +195,7 @@ def generate_training_data(output_path, train, r_k, max_depth, splits=10, max_ne
         f.write("undersampled: {}\n".format(undersampled_tot))
 
 
-def generate_training_walks(output_path, facts, holdout, r_k, max_depth, max_negative_samples=64):
+def generate_training_walks(output_path, facts, holdout, r_k, max_depth,allow_non_candidate=False, max_negative_samples=64):
     make_path(output_path)
     walks, unreachable, trivial, candidate_sampled, supplemented, undersampled = generate_walks(
         facts=facts,
@@ -199,6 +203,7 @@ def generate_training_walks(output_path, facts, holdout, r_k, max_depth, max_neg
         max_depth=max_depth,
         r_k=r_k,
         max_negative_samples=max_negative_samples,
+        allow_non_candidate=allow_non_candidate,
         desc='Training Data')
 
     with open(output_path + '.pickle', 'wb') as f:

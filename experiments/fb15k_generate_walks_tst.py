@@ -6,7 +6,8 @@ from inference_rules.parser import load_pickle
 
 def main():
     dataset_path = 'output/FB15K/dataset'
-    output_path = 'output/FB15K/processed/test.pickle'
+    output_path = 'output/FB15K/walks/test'
+    allow_non_candidate = False
 
     data = np.load('{}/dataset.npz'.format(dataset_path))
     relations = load_pickle('{}/relations.pickle'.format(dataset_path))
@@ -19,6 +20,7 @@ def main():
     max_negative_samples = 20
     generate_validation_data(
         output_path=output_path,
+        allow_non_candidate=allow_non_candidate,
         train=train,
         valid=test,
         all_facts=all_facts,
