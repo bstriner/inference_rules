@@ -9,7 +9,7 @@ from inference_rules.parser import load_pickle
 def main(argv):
     assert len(argv) > 1
     split = int(argv[1])
-    allow_non_candidate=False
+    allow_non_candidate = False
     print("Processing split {}".format(split))
     dataset_path = 'output/FB15K/dataset'
     split_path = 'output/FB15K/splits/split-{}.npz'
@@ -26,7 +26,8 @@ def main(argv):
         r_k=r_k,
         allow_non_candidate=allow_non_candidate,
         max_depth=max_depth,
-        max_negative_samples=max_negative_samples)
+        max_negative_samples=max_negative_samples,
+        desc="Generating Training Data (split {})".format(split))
 
 
 if __name__ == '__main__':

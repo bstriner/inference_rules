@@ -156,6 +156,7 @@ def generate_validation_data(output_path, train, valid, r_k, max_depth, all_fact
 
 
 def generate_training_data(output_path, train, r_k, max_depth, splits=10,allow_non_candidate=False,
+                           desc='Generating training data',
                            max_negative_samples=64):
     make_path(output_path)
     train_holdout = list(split_data(train, splits))
@@ -168,7 +169,7 @@ def generate_training_data(output_path, train, r_k, max_depth, splits=10,allow_n
     candidate_sampled_tot = 0
     supplemented_tot = 0
     undersampled_tot = 0
-    for i in tqdm(range(splits), desc='Training data'):
+    for i in tqdm(range(splits), desc=desc):
         walks, unreachable, trivial, candidate_sampled, supplemented, undersampled = generate_walks(
             facts=train_facts[i],
             holdouts=train_holdout[i],
@@ -195,7 +196,8 @@ def generate_training_data(output_path, train, r_k, max_depth, splits=10,allow_n
         f.write("undersampled: {}\n".format(undersampled_tot))
 
 
-def generate_training_walks(output_path, facts, holdout, r_k, max_depth,allow_non_candidate=False, max_negative_samples=64):
+def generate_training_walks(output_path, facts, holdout, r_k, max_depth,allow_non_candidate=False, max_negative_samples=64,
+                            desc="Generating training walks"):
     make_path(output_path)
     walks, unreachable, trivial, candidate_sampled, supplemented, undersampled = generate_walks(
         facts=facts,
@@ -204,7 +206,7 @@ def generate_training_walks(output_path, facts, holdout, r_k, max_depth,allow_no
         r_k=r_k,
         max_negative_samples=max_negative_samples,
         allow_non_candidate=allow_non_candidate,
-        desc='Training Data')
+        desc=desc)
 
     with open(output_path + '.pickle', 'wb') as f:
         pickle.dump(walks, f)
