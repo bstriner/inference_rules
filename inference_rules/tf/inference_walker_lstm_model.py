@@ -6,15 +6,32 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.training.session_run_hook import SessionRunHook, SessionRunArgs
 
+from .plugin_write_rules import PluginWriteRules
+
 EPSILON = 1e-7
 from tensorflow.contrib.rnn import LSTMCell
 
 from tensorflow.python.ops.init_ops import RandomUniform
 
+"""
+def l2(weight):
+    return lambda x: weight*tf.reduce_sum(tf.square(x))
 
-def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, sample_queries, sample_count, params, mode,
-             regularizer=None,
+def add_regularization(regularizer=None):
+    if regularizer:
+        for v in tf.trainable_variables():
+            with ops.name_scope(v.name + "/Regularizer/"):
+                loss = regularizer(v)
+            if loss is not None:
+                ops.add_to_collection(ops.GraphKeys.REGULARIZATION_LOSSES, loss)
+"""
+
+
+def run_lstm(walks, walk_assignments, walk_queries, sample_queries, sample_count, params, mode,
              layers=2):
+    units = params.units
+    rule_depth = params.rule_depth
+    r_k = params.r_k
     if params.rectifier == 'exp':
         rectifier = tf.exp
     elif params.rectifier == 'softplus':
@@ -29,10 +46,11 @@ def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, samp
         lstms.append(LSTMCell(units, initializer=initializer))
     embedding_depth = tf.get_variable(name='embedding_d', shape=[rule_depth, units], trainable=True,
                                       initializer=initializer)
-    embedding_q = tf.get_variable(name='embedding_q', shape=[r_k, units], trainable=True, initializer=initializer)
+    embedding_q = tf.get_variable(name='embedding_q', shape=[r_k, units], trainable=True,
+                                  initializer=initializer)
     embedding_r = tf.get_variable(name='embedding_r', shape=[r_k * 2, units], trainable=True, initializer=initializer)
     # beta_dense = tf.layers.Dense(units=2, kernel_initializer=initializer, name='beta_dense')
-
+    training = mode == tf.estimator.ModeKeys.TRAIN
     for walk, assignment, query, depth in zip(walks, walk_assignments, walk_queries, range(rule_depth)):
         # walks: (wn, rd)
         # activation = tf.nn.relu
@@ -44,9 +62,11 @@ def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, samp
         for w in tf.unstack(walk, axis=1):
             embedded_w = tf.gather(embedding_r, w, axis=0)
             out = embedded_w + embedded_depth + embedded_q
+            out = tf.layers.dropout(out, rate=params.dropout_input, training=training)
             for i, lstm in enumerate(lstms):
                 with tf.variable_scope('lstm_{}'.format(i), reuse=tf.AUTO_REUSE):
                     out, state = lstm(out, states[i])
+                    out = tf.layers.dropout(out, rate=params.dropout_hidden, training=training)
                 states[i] = state
         # out = tf.layers.dense(out, units=units, name='beta_hidden', reuse=tf.AUTO_REUSE, activation=tf.nn.relu,
         #                    kernel_initializer=initializer)
@@ -66,19 +86,19 @@ def run_lstm(walks, walk_assignments, walk_queries, units, rule_depth, r_k, samp
         betas += tf.tensordot(assignment_one_hot, beta, axes=(0, 0),
                               name='beta_assignment_{}'.format(depth))  # (sample_count, 2)
 
-    if params.sigmoid_output:
-        bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 1],
-                               trainable=True, dtype=tf.float32, initializer=tf.initializers.zeros)
-        bias = tf.gather(bias_var, sample_queries, axis=0)
-        tf.summary.histogram('bias', bias)
-    else:
-        bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 2],
-                                   trainable=True, dtype=tf.float32, initializer=tf.initializers.zeros)
-        bias = rectifier(tf.gather(bias_var, sample_queries, axis=0)) + EPSILON
-        tf.summary.histogram('bias_0', bias[:,0])
-        tf.summary.histogram('bias_1', bias[:,1])
-    # bias = tf.nn.relu(tf.gather(bias_var, sample_queries, axis=0), name='bias_relu')
-    betas += bias
+    if params.enable_bias:
+        if params.sigmoid_output:
+            bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 1],
+                                       trainable=True, dtype=tf.float32, initializer=tf.initializers.zeros)
+            bias = tf.gather(bias_var, sample_queries, axis=0)
+            tf.summary.histogram('bias', bias)
+        else:
+            bias_var = tf.get_variable(name='beta_bias', shape=[r_k, 2],
+                                       trainable=True, dtype=tf.float32, initializer=tf.initializers.zeros)
+            bias = rectifier(tf.gather(bias_var, sample_queries, axis=0)) + EPSILON
+            tf.summary.histogram('bias_0', bias[:, 0])
+            tf.summary.histogram('bias_1', bias[:, 1])
+        betas += bias
     return betas
 
 
@@ -102,9 +122,8 @@ def inference_fn(features, mode, params):
     for wa in walk_assignments:
         tf.add_to_collection("WALK_ASSIGNMENTS", wa)
 
-
     betas = run_lstm(walks=walks, walk_assignments=walk_assignments, walk_queries=walk_queries,
-                     units=units, rule_depth=rule_depth, r_k=r_k, params=params, mode=mode,
+                     params=params, mode=mode,
                      sample_queries=sample_queries, sample_count=sample_count, layers=2)
     if params.sigmoid_output:
         tf.summary.histogram('betas', betas[:, 0])
@@ -121,10 +140,14 @@ def cross_entropy(labels, p):
     return -tf.reduce_mean((labels * tf.log(EPSILON + p)) + ((1. - labels) * tf.log(EPSILON + 1. - p)))
 
 
+from tensorflow.contrib.layers import l2_regularizer, apply_regularization
+
+
 def make_model_fn(relations):
     def model_fn(features, labels, mode, params):
         # Loss
         expected_p = inference_fn(features, mode, params)
+
         # logits = tf.log(expected_p)
         classes = tf.greater(expected_p, 0.5)
         if mode == tf.estimator.ModeKeys.PREDICT:
@@ -139,6 +162,10 @@ def make_model_fn(relations):
             # loss = tf.reduce_mean(
             #    tf.nn.sigmoid_cross_entropy_with_logits(labels=labels, logits=logits))
             loss = cross_entropy(labels=smooth_labels, p=expected_p)
+            if params.l2 > 0:
+                reg = apply_regularization(l2_regularizer(params.l2), tf.trainable_variables())
+                tf.summary.scalar("regularization", reg)
+                loss += reg
             if mode == tf.estimator.ModeKeys.TRAIN:
                 eq = tf.equal(tf.cast(classes, tf.int32), tf.cast(labels, tf.int32))
                 train_accuracy = tf.reduce_mean(tf.cast(eq, tf.float32))
@@ -165,7 +192,10 @@ def make_model_fn(relations):
                 return tf.estimator.EstimatorSpec(mode=mode, loss=loss, train_op=train_op)
             else:
                 # Binary accuracy
-                accuracy_binary = tf.metrics.accuracy(labels=labels, predictions=classes, name='accuracy_binary')
+                accuracy_binary = tf.metrics.accuracy(labels=labels,
+                                                      predictions=classes,
+                                                      name='accuracy_binary',
+                                                      weights=features['sample_weights'])
                 # Top 1 accuracy
                 qg = features['query_groups']  # (n, 2)
                 score_shape = tf.reduce_max(qg, axis=0) + 1
@@ -186,10 +216,11 @@ def make_input_fn(rule_depth, evaluation=False):
                   for i in range(rule_depth)]
         passignments = [tf.placeholder(name='assignments_{}'.format(i), shape=[None], dtype=tf.int32)
                         for i in range(rule_depth)]
+        pweights = tf.placeholder(name='sample_weights', shape=[None], dtype=tf.float32)
         ptargets = tf.placeholder(name='targets', shape=[None], dtype=tf.int32)
         pqueries = tf.placeholder(name='queries', shape=[None], dtype=tf.int32)
         # input_fn
-        kw = {'queries': pqueries}
+        kw = {'queries': pqueries, 'sample_weights': pweights}
         for i in range(rule_depth):
             kw['walks_{}'.format(i)] = pwalks[i]
             kw['assignments_{}'.format(i)] = passignments[i]
@@ -208,13 +239,14 @@ class FeedFnHook(SessionRunHook):
         self.placeholder_targets = None
         self.placeholder_queries = None
         self.placeholder_walks = None
+        self.placeholder_weights = None
         self.placeholder_assignments = None
         self.placeholder_query_groups = None
         self.evaluation = evaluation
-        walks = np.load(os.path.join(path, 'walks.npz'))
+        walks = np.load(path + '.npz')
         self.pos_walks = [walks['pos_walks_{}'.format(i)] for i in range(rule_depth)]
         self.neg_walks = [walks['neg_walks_{}'.format(i)] for i in range(rule_depth)]
-        with open(os.path.join(path, 'walk_idx.pickle'), 'rb') as f:
+        with open(path + '.pickle', 'rb') as f:
             self.walk_ids = pickle.load(f)
         self.count = len(self.walk_ids)
 
@@ -225,6 +257,7 @@ class FeedFnHook(SessionRunHook):
                                   for i in range(self.rule_depth)]
         self.placeholder_assignments = [graph.get_tensor_by_name("assignments_{}:0".format(i))
                                         for i in range(self.rule_depth)]
+        self.placeholder_weights = graph.get_tensor_by_name("sample_weights:0")
         if self.evaluation:
             self.placeholder_query_groups = graph.get_tensor_by_name('query_groups:0')
 
@@ -232,6 +265,7 @@ class FeedFnHook(SessionRunHook):
         self.load_placeholders(graph)
         bwalks = [[] for _ in range(self.rule_depth)]
         bassignments = [[] for _ in range(self.rule_depth)]
+        bweights = []
         btargets = []
         bqueries = []
         bquery_groups = []
@@ -247,6 +281,7 @@ class FeedFnHook(SessionRunHook):
                     bwalks[d].append(bwalk)
                     bassignments[d].append(walk_counter * np.ones((bwalk.shape[0],), dtype=np.int32))
             btargets.append(1)
+            bweights.append(1)
             bqueries.append(walk['r'])
             if self.evaluation:
                 bquery_groups.append([i, 0])
@@ -264,6 +299,7 @@ class FeedFnHook(SessionRunHook):
                         bwalks[d].append(bwalk)
                         bassignments[d].append((walk_counter * np.ones((bwalk.shape[0],), dtype=np.int32)))
                 btargets.append(0)
+                bweights.append(1. / neg_count_t)
                 bqueries.append(walk['r'])
                 if self.evaluation:
                     bquery_groups.append([i, 1 + j])
@@ -275,7 +311,10 @@ class FeedFnHook(SessionRunHook):
         bassignments = [np.concatenate(bassignment, axis=0) for bassignment in bassignments]
         btargets = np.array(btargets, dtype=np.int32)
         bqueries = np.array(bqueries, dtype=np.int32)
-        feed_dict = {self.placeholder_queries: bqueries, self.placeholder_targets: btargets}
+        bweights = np.array(bweights, dtype=np.float32)
+        feed_dict = {self.placeholder_queries: bqueries,
+                     self.placeholder_targets: btargets,
+                     self.placeholder_weights: bweights}
         for pw, bw in zip(self.placeholder_walks, bwalks):
             feed_dict[pw] = bw
         for pa, ba in zip(self.placeholder_assignments, bassignments):
@@ -290,13 +329,10 @@ class FeedFnHook(SessionRunHook):
         return SessionRunArgs(fetches=None, feed_dict=feed_dict)
 
 
-from .plugin_write_rules import PluginWriteRules
-
-
 def make_experiment_fn(relations):
     def experiment_fn(run_config, hparams):
-        train_path = tf.flags.FLAGS.train_dir
-        valid_path = tf.flags.FLAGS.valid_dir
+        train_path = tf.flags.FLAGS.train_path
+        valid_path = tf.flags.FLAGS.valid_path
         estimator = tf.estimator.Estimator(
             model_fn=make_model_fn(relations=relations),
             config=run_config,
@@ -332,15 +368,18 @@ def main(_argv):
                                           momentum=0.9,
                                           rule_depth=2,
                                           units=256,
-                                          # rule_count=256,
                                           decay_rate=0.1,
                                           decay_steps=300000,
                                           sigmoid_output=True,
+                                          enable_bias=False,
                                           rectifier='softplus',
                                           r_k=r_k,
                                           smoothing=0.1,
+                                          l2=1e-5,
                                           optimizer='adam',
-                                          batch_size=64)
+                                          dropout_input=0.2,
+                                          dropout_hidden=0.5,
+                                          batch_size=128)
     hparams.parse(tf.flags.FLAGS.hparams)
     os.makedirs(model_dir, exist_ok=True)
     with open(os.path.join(model_dir, 'configuration-flags.json'), 'w') as f:

@@ -3,7 +3,8 @@ import pickle
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.python.training.basic_session_run_hooks import SecondOrStepTimer
+from tensorflow.contrib.learn import RunConfig
+from tensorflow.contrib.training import HParams
 from tensorflow.python.training.session_run_hook import SessionRunHook, SessionRunArgs
 
 from .gumbel_tf import gumbel_sigmoid
@@ -52,7 +53,10 @@ def calc_features(walks, assignments, alphas, dists, queries, sample_count, rule
         features += sample_features
     return features
 
+
 from tensorflow.python.ops.init_ops import RandomUniform, Zeros
+
+
 def inference_fn(features, mode, params):
     rule_count = params.rule_count
     rule_depth = params.rule_depth
@@ -207,13 +211,13 @@ class FeedFnHook(SessionRunHook):
         placeholder_targets = graph.get_tensor_by_name("targets:0")
         placeholder_queries = graph.get_tensor_by_name("queries:0")
         placeholder_walks = [graph.get_tensor_by_name("walks_{}:0".format(i))
-                                  for i in range(self.rule_depth)]
+                             for i in range(self.rule_depth)]
         placeholder_assignments = [graph.get_tensor_by_name("assignments_{}:0".format(i))
-                                        for i in range(self.rule_depth)]
+                                   for i in range(self.rule_depth)]
         return placeholder_walks, placeholder_queries, placeholder_targets, placeholder_assignments
 
     def before_run(self, run_context):
-        placeholder_walks, placeholder_queries, placeholder_targets, placeholder_assignments =\
+        placeholder_walks, placeholder_queries, placeholder_targets, placeholder_assignments = \
             self.load_placeholders(run_context.session.graph)
         bwalks = [[] for _ in range(self.rule_depth)]
         bassignments = [[] for _ in range(self.rule_depth)]
@@ -274,20 +278,20 @@ def main(_argv):
     with open('../experiments/output/FB15K/dataset/relations.pickle', 'rb') as f:
         relations = pickle.load(f)
     r_k = len(relations)
-    run_config = tf.contrib.learn.RunConfig(model_dir=tf.flags.FLAGS.model_dir)
-    hparams = tf.contrib.training.HParams(lr=0.001,
-                                          momentum=0.9,
-                                          rule_depth=2,
-                                          rule_count=256,
-                                          decay_rate=0.1,
-                                          decay_steps=300000,
-                                          tau0=1.,
-                                          tau_decay=1e-6,
-                                          tau_min=0.1,
-                                          r_k=r_k,
-                                          smoothing=0.,
-                                          optimizer='adam',
-                                          batch_size=64)
+    run_config = RunConfig(model_dir=tf.flags.FLAGS.model_dir)
+    hparams = HParams(lr=0.001,
+                      momentum=0.9,
+                      rule_depth=2,
+                      rule_count=256,
+                      decay_rate=0.1,
+                      decay_steps=300000,
+                      tau0=1.,
+                      tau_decay=1e-6,
+                      tau_min=0.1,
+                      r_k=r_k,
+                      smoothing=0.,
+                      optimizer='adam',
+                      batch_size=64)
     hparams.parse(tf.flags.FLAGS.hparams)
     estimator = tf.contrib.learn.learn_runner.run(
         experiment_fn=experiment_fn,

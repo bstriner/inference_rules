@@ -13,12 +13,12 @@ def generate_dataset(input_path, output_path, map=range(3)):
     entities = [get_entities(d) for d in data]
     relations = [get_relations(d) for d in data]
     for i, d in enumerate(data):
-        print "{}: tuples={}, entities={}, relations={}".format(files[i], len(d), len(entities[i]), len(relations[i]))
+        print("{}: tuples={}, entities={}, relations={}".format(files[i], len(d), len(entities[i]), len(relations[i])))
 
     for i in [1, 2]:
         newentities = set(e for e in entities[i] if e not in entities[0])
         newrelations = set(r for r in relations[i] if r not in relations[0])
-        print "New in {}: entities={}, relations={}".format(files[i], len(newentities), len(newrelations))
+        print("New in {}: entities={}, relations={}".format(files[i], len(newentities), len(newrelations)))
 
     all_entities = list(set(itertools.chain.from_iterable(entities)))
     all_entities.sort()

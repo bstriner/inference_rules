@@ -50,7 +50,7 @@ def map_triples(ts, emap, rmap):
 
 
 def save_list(path, data):
-    with open(path + '.csv', 'wb') as f:
+    with open(path + '.csv', 'w', newline='') as f:
         w = csv.writer(f)
         w.writerow(['Id', 'Name'])
         for i, d in enumerate(data):

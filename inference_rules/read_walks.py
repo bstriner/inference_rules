@@ -14,7 +14,7 @@ def read_walks(path, n):
 def yield_walks(path, n):
     for i in range(n):
         with open(path.format(i), 'rb') as f:
-            for w in pickle.load(f, encoding='bytes'):
+            for w in pickle.load(f):
                 yield w
 
 
@@ -23,11 +23,11 @@ def count_walks(gen):
     pos_walks = [0 for _ in range(depth)]
     neg_walks = [0 for _ in range(depth)]
     for w in gen:
-        for i, d in enumerate(w[b'rels']):
+        for i, d in enumerate(w['rels']):
             if d is not None:
                 pos_walks[i] += d.shape[0]
-        for n in w[b'neg_walks']:
-            for i, d in enumerate(n[b'rels']):
+        for n in w['neg_walks']:
+            for i, d in enumerate(n['rels']):
                 if d is not None:
                     neg_walks[i] += d.shape[0]
     print("Pos walks: {}".format(pos_walks))
@@ -44,7 +44,7 @@ def merge_walks(path, n, depth):
     walk_idx = []
     for w in yield_walks(path, n):
         ids = []
-        for i, d in enumerate(w[b'rels']):
+        for i, d in enumerate(w['rels']):
             if d is None:
                 ids.append(None)
             else:
@@ -53,9 +53,9 @@ def merge_walks(path, n, depth):
                 pos_walks[i][id, :] = d
                 pos_idx[i] += d.shape[0]
         neg_ids = []
-        for n in w[b'neg_walks']:
+        for n in w['neg_walks']:
             nids = []
-            for i, d in enumerate(n[b'rels']):
+            for i, d in enumerate(n['rels']):
                 if d is None:
                     nids.append(None)
                 else:
@@ -64,6 +64,6 @@ def merge_walks(path, n, depth):
                     neg_walks[i][id, :] = d
                     neg_idx[i] += d.shape[0]
             neg_ids.append(nids)
-        walk_idx.append({"ids": ids, "neg_ids": neg_ids, 'r': w[b'r']})
+        walk_idx.append({"ids": ids, "neg_ids": neg_ids, 'r': w['r']})
 
     return pos_walks, neg_walks, walk_idx

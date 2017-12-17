@@ -9,10 +9,11 @@ def main(argv):
 
 if __name__ == '__main__':
     tf.logging.set_verbosity(tf.logging.INFO)
-    tf.flags.DEFINE_string('model-dir', 'output/sigmoid/model-adam-9', 'Model directory')
-    tf.flags.DEFINE_string('train-dir', 'output/FB15K/merged_walks', 'Schedule')
+    tf.flags.DEFINE_string('model-dir', 'output/sigmoid/newdata-sigmoid-nobias',
+                           'Model directory')
+    tf.flags.DEFINE_string('train-path', 'output/FB15K/merged_walks/train', 'Schedule')
     #tf.flags.DEFINE_string('valid-dir', 'output/FB15K/merged_walks', 'Schedule')
-    tf.flags.DEFINE_string('valid-dir', 'output/FB15K/merged_walks_valid', 'Schedule')
+    tf.flags.DEFINE_string('valid-path', 'output/FB15K/merged_walks/valid', 'Schedule')
     tf.flags.DEFINE_string('schedule', 'train_and_evaluate', 'Schedule')
     tf.flags.DEFINE_boolean('sigmoid-dist', True, 'Schedule')
     tf.flags.DEFINE_string('hparams', '', 'Hyperparameters')

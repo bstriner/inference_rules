@@ -144,7 +144,7 @@ def generate_validation_data(output_path, train, valid, r_k, max_depth, all_fact
         r_k=r_k,
         max_negative_samples=max_negative_samples,
         desc='Validation Walks')
-    with open(output_path, 'wb') as f:
+    with open(output_path + '.pickle', 'wb') as f:
         pickle.dump(walks, f)
     with open(output_path + '.txt', 'w') as f:
         f.write("len(walks): {}\n".format(len(walks)))

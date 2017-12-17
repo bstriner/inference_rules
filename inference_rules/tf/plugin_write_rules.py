@@ -6,18 +6,13 @@ import tensorflow as tf
 from tensorflow.python.training.session_run_hook import SessionRunHook
 
 
-def format_rule(rule, relations):
+def format_rule(rule, relations, entities=None):
+    if not entities:
+        entities = ['S']+[chr(ord('A')+i) for i in range(len(relations)-1)]+['T']
     text = []
     for i, w in enumerate(rule):
-        if i > 0:
-            e0 = chr(ord('A') + i - 1)
-        else:
-            e0 = 'S'
-        if i < rule.shape[0] - 1:
-            e1 = chr(ord('A') + i)
-        else:
-            e1 = 'T'
-
+        e0 = entities[i]
+        e1 = entities[i+1]
         if w < len(relations):
             text.append("{}({}, {})".format(relations[w], e0, e1))
         else:
@@ -25,8 +20,8 @@ def format_rule(rule, relations):
     return " ^ ".join(text)
 
 
-def format_query(query, relations):
-    return "{}(S,T)".format(relations[query])
+def format_query(query, relations, s="S", t="T"):
+    return "{}({},{})".format(relations[query], s, t)
 
 
 class PluginWriteRules(SessionRunHook):
@@ -85,14 +80,14 @@ class PluginWriteRules(SessionRunHook):
         csv_path = os.path.join(pred_path, 'rules-{:08d}.csv'.format(global_step))
         with open(csv_path, 'w') as f:
             writer = csv.writer(f)
-            writer.writerow(['Query', 'Rule'] + ['Beta {}'.format(i) for i in range(beta_dim)])
+            writer.writerow(['Query', 'Rule Depth', 'Rule'] + ['Beta {}'.format(i) for i in range(beta_dim)])
             for d in range(self.rule_depth):
                 for i in range(walks[d].shape[0]):
                     q = format_query(query=walk_queries[d][i], relations=self.relations)
                     walk = walks[d][i, :]
                     text = format_rule(relations=self.relations, rule=walk)
                     bs = [betas[d][i, j] for j in range(beta_dim)]
-                    writer.writerow([q, text] + bs)
+                    writer.writerow([q, d+1, text] + bs)
 
     @property
     def eval_result(self):
