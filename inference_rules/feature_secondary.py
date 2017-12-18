@@ -46,32 +46,42 @@ def feature_secondary_masked(
     return scores
 
 
-def feature_secondary(ent_embedded, rel_embedded, query_embedded, target_embedded, params, reuse=tf.AUTO_REUSE):
+def feature_secondary(
+        ent,
+        rel,
+        q,
+        t,
+        embedding,
+        params,
+        reuse=tf.AUTO_REUSE):
     ectx = tf.layers.dense(
-        inputs=ent_embedded,
+        inputs=embedding.embed_entity(ent),
         units=params.units,
         name='secondary_ent_ctx',
         reuse=reuse
     )
     rctx = tf.layers.dense(
-        inputs=rel_embedded,
+        inputs=embedding.embed_relation(rel),
         units=params.units,
         name='secondary_rel_ctx',
         reuse=reuse
     )
     qctx = tf.layers.dense(
-        inputs=query_embedded,
+        inputs=embedding.embed_relation(q),
         units=params.units,
         name='secondary_q_ctx',
         reuse=reuse
     )
     tctx = tf.layers.dense(
-        inputs=target_embedded,
+        inputs=embedding.embed_entity(t),
         units=params.units,
         name='secondary_t_ctx',
         reuse=reuse
     )
-    h = ectx + rctx + qctx + tctx
+    h = ectx
+    h += rctx
+    h += qctx
+    h += tctx
     for i in range(3):
         h = tf.layers.dense(
             inputs=h,

@@ -58,10 +58,11 @@ def default_params():
         enable_transe=True,
         enable_walks1=True,
         enable_walks2=True,
-        enable_secondary=False,
+        enable_secondary=True,
         units=512,
         lr=0.0001,
         decay_rate=0.8,
         decay_steps=50000,
         smoothing=0.1,
+        negative_samples=20,
         l2=1e-6)

@@ -103,9 +103,14 @@ def select_subset(es, n):
         return es
 
 
+def assignment_array(n, i, pos):
+    return np.array([[i, pos]], dtype=np.int32).repeat(n, axis=0)
+
+
 class DatasetProcessor(object):
-    def __init__(self, input_path, negative_samples=200, mode='train'):
+    def __init__(self, input_path, params, negative_samples=200, mode='train'):
         self.mode = mode
+        self.params = params
         self.data = load_dataset(input_path)
         self.train, self.valid, self.test = self.data
         if mode == 'train':
@@ -165,7 +170,7 @@ class DatasetProcessor(object):
         if t in self.forward[s]:
             for rel in self.forward[s][t]:
                 if rel != r:
-                    walks.append([rel + 1])
+                    walks.append([rel])
         if len(walks) > 0:
             return np.array(walks, dtype=np.int32)
         else:
@@ -184,7 +189,7 @@ class DatasetProcessor(object):
             for rel1 in rels1:
                 for rel2 in rels2:
                     if not ((rel1 == r and z == t) or (rel2 == r and z == s)):
-                        walks.append([rel1 + 1, rel2 + 1])
+                        walks.append([rel1, rel2])
         if len(walks) > 0:
             return np.array(walks, dtype=np.int32)
         else:
@@ -195,7 +200,7 @@ class DatasetProcessor(object):
         for x, y in self.forward[s].items():
             for z in y:
                 if not (x == t and z == r):
-                    feats.append([x + 1, z + 1])
+                    feats.append([x, z])
         if len(feats) > 0:
             return np.array(feats, np.int32)
         else:
@@ -206,7 +211,7 @@ class DatasetProcessor(object):
         for x, y in self.backward[t].items():
             for z in y:
                 if not (x == s and z == r):
-                    feats.append([x + 1, z + 1])
+                    feats.append([x, z])
         if len(feats) > 0:
             return np.array(feats, np.int32)
         else:
@@ -216,6 +221,104 @@ class DatasetProcessor(object):
         w1 = self.generate_walks_1(s, r, t)
         w2 = self.generate_walks_2(s, r, t)
         return w1, w2
+
+    def generate_examples(self, batch_size):
+        ss = []
+        rs = []
+        ts = []
+        tnegs = []
+        tnegassignments = []
+        w1s = []
+        w1assignments = []
+        w2s = []
+        w2assignments = []
+        ffs = []
+        ffassignments = []
+        fbs = []
+        fbassignments = []
+        index = 0
+        while index < batch_size:
+            id = np.random.randint(low=0, high=self.current.shape[0] - 1)
+            s, r, t = self.current[id, :]
+            type_match = self.get_candidates(r)
+            correct = self.get_correct(s, r)
+            candidates = list(type_match - correct)
+            n = len(candidates)
+            if n > 0:
+                ss.append(s)
+                rs.append(r)
+                ts.append(t)
+                if self.params.enable_walks1:
+                    w1 = self.generate_walks_1(s, r, t)
+                    w1s.append(w1)
+                    w1assignments.append(assignment_array(n=w1.shape[0], i=index, pos=0))
+                if self.params.enable_walks2:
+                    w2 = self.generate_walks_2(s, r, t)
+                    w2s.append(w2)
+                    w2assignments.append(assignment_array(n=w2.shape[0], i=index, pos=0))
+                if self.params.enable_secondary:
+                    ff = self.generate_feats_forward(s, r, t)
+                    fb = self.generate_feats_backward(s, r, t)
+                    ffs.append(ff)
+                    ffassignments.append(assignment_array(n=ff.shape[0], i=index, pos=0))
+                    fbs.append(fb)
+                    fbassignments.append(assignment_array(n=fb.shape[0], i=index, pos=0))
+
+                ns = select_subset(candidates, self.negative_samples)
+                fact_pos = 1
+                for c in ns:
+                    tnegs.append(c)
+                    tnegassignments.append(assignment_array(n=1, i=index, pos=fact_pos))
+                    if self.params.enable_walks1:
+                        w1 = self.generate_walks_1(s, r, c)
+                        w1s.append(w1)
+                        w1assignments.append(assignment_array(n=w1.shape[0], i=index, pos=fact_pos))
+                    if self.params.enable_walks2:
+                        w2 = self.generate_walks_2(s, r, c)
+                        w2s.append(w2)
+                        w2assignments.append(assignment_array(n=w2.shape[0], i=index, pos=fact_pos))
+                    if self.params.enable_secondary:
+                        ff = self.generate_feats_forward(s, r, c)
+                        fb = self.generate_feats_backward(s, r, c)
+                        ffs.append(ff)
+                        ffassignments.append(assignment_array(n=ff.shape[0], i=index, pos=fact_pos))
+                        fbs.append(fb)
+                        fbassignments.append(assignment_array(n=fb.shape[0], i=index, pos=fact_pos))
+                    fact_pos += 1
+                index += 1
+
+        ss = np.array(ss, dtype=np.int32)
+        rs = np.array(rs, dtype=np.int32)
+        ts = np.array(ts, dtype=np.int32)
+        tnegs = np.array(tnegs, dtype=np.int32)
+        tnegassignments = np.concatenate(tnegassignments, axis=0)
+        kw = {
+            's': ss,
+            'r': rs,
+            't': ts,
+            'tneg': tnegs,
+            'tnegassignments': tnegassignments
+        }
+        if self.params.enable_walks1:
+            w1s = np.concatenate(w1s, axis=0)
+            w1assignments = np.concatenate(w1assignments, axis=0)
+            kw['w1s'] = w1s
+            kw['w1assignments'] = w1assignments
+        if self.params.enable_walks2:
+            w2s = np.concatenate(w2s, axis=0)
+            w2assignments = np.concatenate(w2assignments, axis=0)
+            kw['w2s'] = w2s
+            kw['w2assignments'] = w2assignments
+        if self.params.enable_secondary:
+            ffs = np.concatenate(ffs, axis=0)
+            ffassignments = np.concatenate(ffassignments, axis=0)
+            fbs = np.concatenate(fbs, axis=0)
+            fbassignments = np.concatenate(fbassignments, axis=0)
+            kw['ffs'] = ffs
+            kw['ffassignments'] = ffassignments
+            kw['fbs'] = fbs
+            kw['fbassignments'] = fbassignments
+        return kw
 
     def generate_features(self, s, r, t, fact_id):
         ts = []

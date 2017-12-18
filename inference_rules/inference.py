@@ -1,8 +1,9 @@
 import tensorflow as tf
 
-from .feature_secondary import feature_secondary_masked
+from .feature_embedding import GraphEmbedding
+from .feature_secondary import feature_secondary
 from .feature_transe import feature_transe
-from .feature_walks import feature_walks_masked
+from .feature_walks import feature_walks
 from .util import masked_feature
 
 
@@ -118,44 +119,93 @@ def inference_fn_pred(features, mode, params, e_k, r_k):
 
 
 def inference_fn(features, mode, params, e_k, r_k):
+    embedding = GraphEmbedding(e_k=e_k, r_k=r_k, params=params)
     s = features['s']  # (n,)
     r = features['r']  # (n,)
-    t_raw = features['t']  # (n, samples)
-    w1_raw = features['w1']  # (n, samples, walks, 1)
-    w2_raw = features['w2']  # (n, samples, walks, 2)
-    ff_raw = features['ff']  # (n, samples, walks, 2)
-    fb_raw = features['fb']  # (n, samples, walks, 2)
-
+    t = features['t']  # (n,)
+    tneg = features['tneg']  # (n,)
+    tnegassignments = features['tnegassignments']  # (n, samples)
+    maxneg = tf.reduce_max(tnegassignments[:, 1], 0)  # scalar
     n = tf.shape(s)[0]
-    samples = tf.shape(t_raw)[1]
 
-    t, t_mask = masked_feature(t_raw)
-    srep = tf.tile(tf.expand_dims(s, 1), [1, samples])
-    rrep = tf.tile(tf.expand_dims(r, 1), [1, samples])
+    scores = tf.zeros((n, maxneg + 1), dtype=tf.float32)
+    print("shape: {}".format(tf.shape(scores)))
+    score_mask = tf.scatter_nd(
+        indices=tnegassignments,
+        updates=tf.ones((tf.shape(tnegassignments)[0],), tf.float32),
+        shape=tf.shape(scores))
+    score_mask = tf.concat((tf.ones((n, 1)), score_mask[:, 1:]), axis=1)
 
-    sflat = tf.reshape(srep, (-1,))  # (n*samples,)
-    rflat = tf.reshape(rrep, (-1,))  # (n*samples,)
-    tflat = tf.reshape(t, (-1,))  # (n*samples,)
-    w1flat = tf.reshape(w1_raw, (-1, tf.shape(w1_raw)[2], 1))  # (n*samples, walks, 1)
-    w2flat = tf.reshape(w2_raw, (-1, tf.shape(w2_raw)[2], 2))  # (n*samples, walks, 2)
-    ffflat = tf.reshape(ff_raw, (-1, tf.shape(ff_raw)[2], 2))
-    fbflat = tf.reshape(fb_raw, (-1, tf.shape(fb_raw)[2], 2))
+    if params.enable_transe:
+        h = feature_transe(s, r, t, embedding=embedding, params=params)
+        scores += tf.concat((tf.expand_dims(h, 1), tf.zeros((n, maxneg), dtype=tf.float32)), axis=1)
 
-    scores_flat = inference_fn_flat(
-        s=sflat,
-        r=rflat,
-        t=tflat,
-        e_k=e_k,
-        r_k=r_k,
-        w1_raw=w1flat,
-        w2_raw=w2flat,
-        ff_raw=ffflat,
-        fb_raw=fbflat,
-        params=params,
-        mode=mode
-    )
+        sneg = tf.gather(s, tnegassignments[:, 0], axis=0)
+        rneg = tf.gather(r, tnegassignments[:, 0], axis=0)
+        h = feature_transe(sneg, rneg, tneg, embedding=embedding, params=params)
+        scores += tf.scatter_nd(indices=tnegassignments, updates=h, shape=tf.shape(scores))
 
-    scores = tf.reshape(scores_flat, tf.shape(t_raw))
-    scores *= t_mask
-    scores -= (1. - t_mask) * 1e6
-    return scores, t_mask
+    if params.enable_walks1:
+        w1s = features['w1s']
+        w1assignments = features['w1assignments']
+        rw1 = tf.gather(r, w1assignments[:, 0], axis=0)
+        h = feature_walks(
+            r=rw1,
+            w=w1s,
+            embedding=embedding,
+            params=params,
+            mode=mode)
+        scores += tf.scatter_nd(indices=w1assignments, updates=h, shape=tf.shape(scores))
+
+    if params.enable_walks2:
+        w2s = features['w2s']
+        w2assignments = features['w2assignments']
+        rw2 = tf.gather(r, w2assignments[:, 0], axis=0)
+        h = feature_walks(
+            r=rw2,
+            w=w2s,
+            embedding=embedding,
+            params=params,
+            mode=mode)
+        scores += tf.scatter_nd(indices=w2assignments, updates=h, shape=tf.shape(scores))
+
+    if params.enable_secondary:
+        ffs = features['ffs']
+        ffassignments = features['ffassignments']
+        ts = tf.scatter_nd(indices=tnegassignments, updates=tneg, shape=tf.shape(scores))
+        ts = tf.concat((tf.expand_dims(t, 1), ts[:, 1:]), axis=1)
+        ft = tf.gather_nd(ts, indices=ffassignments)
+        fe = ffs[:, 0]
+        fr = ffs[:, 1]
+        fq = tf.gather(r, ffassignments[:,0], axis=0)
+
+        fscores = feature_secondary(
+            ent=fe,
+            rel=fr,
+            q=fq,
+            t=ft,
+            embedding=embedding,
+            params=params,
+        )
+        scores += tf.scatter_nd(indices=ffassignments, updates=fscores, shape=tf.shape(scores))
+
+        fbs = features['fbs']
+        fbassignments = features['fbassignments']
+        ss = tf.gather(s, indices=fbassignments[:, 0], axis=0)
+        be = fbs[:, 0]
+        br = fbs[:, 1]
+        bq = tf.gather(r, fbassignments[:,0], axis=0)
+
+        bscores = feature_secondary(
+            ent=be,
+            rel=br,
+            q=bq + r_k,
+            t=ss,
+            embedding=embedding,
+            params=params,
+        )
+        scores += tf.scatter_nd(indices=fbassignments, updates=bscores, shape=tf.shape(scores))
+
+    scores *= score_mask
+    scores -= (1. - score_mask) * 1e6
+    return scores, score_mask

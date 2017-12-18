@@ -44,8 +44,9 @@ def feature_walks_masked(
 
 
 def feature_walks(
-        r_embedded,
-        walks_embedded,
+        r,
+        w,
+        embedding,
         params,
         mode,
         layers=2,
@@ -56,19 +57,19 @@ def feature_walks(
         lstms.append(LSTMCell(units))
 
     r_ctx = tf.layers.dense(
-        inputs=r_embedded,
+        inputs=embedding.embed_relation(r),
         units=params.units,
         name='walk_ctx_r',
         reuse=reuse)  # (n, units)
     w_ctx = tf.layers.dense(
-        inputs=walks_embedded,
+        inputs=embedding.embed_relation(w),
         units=params.units,
         name='walk_ctx_w',
         reuse=reuse)  # (n, depth, units)
     ctx = tf.expand_dims(r_ctx, 1) + w_ctx
 
     training = mode == tf.estimator.ModeKeys.TRAIN
-    batch_size = tf.shape(r_embedded)[0]
+    batch_size = tf.shape(r)[0]
 
     h = ctx
     for i, lstm in enumerate(lstms):
