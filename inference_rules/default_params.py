@@ -65,4 +65,4 @@ def default_params():
         decay_steps=50000,
         smoothing=0.1,
         negative_samples=20,
-        l2=1e-6)
+        l2=1e-4)

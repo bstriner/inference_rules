@@ -107,6 +107,13 @@ def assignment_array(n, i, pos):
     return np.array([[i, pos]], dtype=np.int32).repeat(n, axis=0)
 
 
+def filter_feats(arr):
+    if arr.shape[0] > 200:
+        np.random.shuffle(arr)
+        return arr[:200,:]
+    else:
+        return arr
+
 class DatasetProcessor(object):
     def __init__(self, input_path, params, negative_samples=200, mode='train'):
         self.mode = mode
@@ -202,7 +209,7 @@ class DatasetProcessor(object):
                 if not (x == t and z == r):
                     feats.append([x, z])
         if len(feats) > 0:
-            return np.array(feats, np.int32)
+            return filter_feats(np.array(feats, np.int32))
         else:
             return np.zeros((1, 2), np.int32)
 
@@ -213,7 +220,7 @@ class DatasetProcessor(object):
                 if not (x == s and z == r):
                     feats.append([x, z])
         if len(feats) > 0:
-            return np.array(feats, np.int32)
+            return filter_feats(np.array(feats, np.int32))
         else:
             return np.zeros((1, 2), np.int32)
 
