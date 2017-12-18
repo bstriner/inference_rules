@@ -1,4 +1,5 @@
 import csv
+import os
 import pickle
 
 import numpy as np
@@ -39,6 +40,10 @@ def get_relations(ts):
     return es
 
 
+def make_map(ls):
+    return {l: i for i, l in enumerate(ls)}
+
+
 def map_triples(ts, emap, rmap):
     n = len(ts)
     x = np.zeros((n, 3), dtype=np.int32)
@@ -47,6 +52,17 @@ def map_triples(ts, emap, rmap):
         x[i, 1] = rmap[t[1]]
         x[i, 2] = emap[t[2]]
     return x
+
+
+def entity_type_set(ts):
+    ret = {}
+    for tup in ts:
+        r = tup[1]
+        t = tup[2]
+        if r not in ret:
+            ret[r] = set()
+        ret[r].add(t)
+    return ret
 
 
 def save_list(path, data):
@@ -71,5 +87,8 @@ def entity_type_logits(triples, e_k, r_k, source=True, eps=1e-9):
 
 
 def load_pickle(file):
+    assert os.path.exists(file)
     with open(file, 'rb') as f:
-        return pickle.load(f)
+        data = pickle.load(f)
+        assert data is not None
+        return data
