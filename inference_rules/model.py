@@ -7,7 +7,7 @@ from .util import softmax_nd_masked
 
 
 def calc_rank(scores):
-    pos1 = tf.expand_dims(scores[:, 1], 1)  # (n,1)
+    pos1 = tf.expand_dims(scores[:, 0], 1)  # (n,1)
     rank = tf.reduce_sum(tf.cast(tf.greater(scores, pos1), tf.float32), axis=1)  # (n,)
     return rank
 
@@ -38,6 +38,8 @@ def make_model_fn(entities, relations):
                 params=params)
             ranks = calc_rank(scores)
             reciprocal_ranks = 1. / (ranks+1)
+            hits_at_1 = tf.cast(tf.equal(ranks, 0), tf.float32)
+            hits_at_10 = tf.cast(tf.less(ranks, 10), tf.float32)
 
             # Loss
             probs = softmax_nd_masked(scores, mask=mask, axis=-1)  # (n, samples)
@@ -61,6 +63,8 @@ def make_model_fn(entities, relations):
             if mode == tf.estimator.ModeKeys.TRAIN:
                 tf.summary.scalar('mean_reciprocal_rank', tf.reduce_mean(reciprocal_ranks))
                 tf.summary.scalar('mean_rank', tf.reduce_mean(ranks))
+                tf.summary.scalar('hits_at_1', tf.reduce_mean(hits_at_1))
+                tf.summary.scalar('hits_at_10', tf.reduce_mean(hits_at_10))
                 lr = tf.train.exponential_decay(params.lr,
                                                 decay_rate=params.decay_rate,
                                                 decay_steps=params.decay_steps,
@@ -78,6 +82,8 @@ def make_model_fn(entities, relations):
                 eval_metric_ops = {
                     'eval_mean_reciprocal_rank': tf.metrics.mean(reciprocal_ranks),
                     'eval_mean_rank': tf.metrics.mean(ranks),
+                    'eval_hits_at_1': tf.metrics.mean(hits_at_1),
+                    'eval_hits_at_10': tf.metrics.mean(hits_at_10)
                 }
                 return tf.estimator.EstimatorSpec(mode=mode, loss=loss, eval_metric_ops=eval_metric_ops)
 

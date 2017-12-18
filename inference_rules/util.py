@@ -20,3 +20,7 @@ def softmax_nd_masked(x, mask, axis=-1):
     e_x *= mask
     out = e_x / tf.reduce_sum(e_x, axis=axis, keep_dims=True)
     return out
+
+
+def leaky_relu(x):
+    return tf.maximum(0.2 * x, x)

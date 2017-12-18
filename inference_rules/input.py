@@ -6,9 +6,10 @@ def decode_array(a, ashape):
 
 
 def make_input_fn(data_path):
-    capacity = 500
-    min_after_dequeue = 200
+    capacity = 1000
+    min_after_dequeue = 500
     threads = 2
+
     def input_fn():
         feature = {
             's': tf.FixedLenFeature([], tf.int64),
@@ -73,6 +74,7 @@ def make_input_fn(data_path):
             'fb': fb
         }
         return kw, None
+
     return input_fn
 
 
@@ -80,6 +82,7 @@ def make_predict_input_fn(data_path):
     capacity = 500
     min_after_dequeue = 200
     threads = 2
+
     def input_fn():
         feature = {
             's': tf.FixedLenFeature([], tf.int64),
@@ -113,7 +116,6 @@ def make_predict_input_fn(data_path):
         enqueue_op = queue.enqueue([s, r, t, w1, w2, ff, fb])
         qr = tf.train.QueueRunner(queue, [enqueue_op] * threads)
         tf.add_to_collection(tf.GraphKeys.QUEUE_RUNNERS, qr)
-        # tf.add_to_collection(tf.GraphKeys.TABLE_INITIALIZERS, )
         data_shuffled = queue.dequeue()
         for a, b in zip(data_shuffled, data_single):
             a.set_shape(b.get_shape())
@@ -123,15 +125,6 @@ def make_predict_input_fn(data_path):
             capacity=capacity,
             dynamic_pad=True,
             name='shuffled_batch')
-
-        # iterator = ds.make_initializable_iterator()
-        # iterator = ds.make_one_shot_iterator()
-        # tf.train.shuffle_batch()
-        # coord = tf.train.Coordinator()
-        # threads = tf.train.start_queue_runners(coord=coord)
-        # sess.run(tf.global_variables_initializer())
-        # sess.run(iterator.initializer)
-        # next_element = iterator.get_next()
 
         s, r, t, w1, w2, ff, fb = data_batch
         kw = {
@@ -144,4 +137,5 @@ def make_predict_input_fn(data_path):
             'fb': fb
         }
         return kw, None
+
     return input_fn

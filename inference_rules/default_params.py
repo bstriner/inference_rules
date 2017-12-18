@@ -55,8 +55,12 @@ def get_hparams(model_dir, create):
 
 def default_params():
     return HParams(
-        lr=0.0001,
+        enable_transe=True,
+        enable_walks1=True,
+        enable_walks2=True,
+        enable_secondary=False,
         units=512,
+        lr=0.0001,
         decay_rate=0.8,
         decay_steps=50000,
         smoothing=0.1,
