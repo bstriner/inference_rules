@@ -17,7 +17,7 @@ if __name__ == '__main__':
         'hparams',
         (
                 'enable_transe=True,enable_walks1=True,enable_walks2=True,enable_secondary=True,' +
-                'units=256,negative_samples=20'
+                'units=512,negative_samples=20'
         ),
         'Hyperparameters')
     tf.app.run()

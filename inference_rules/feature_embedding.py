@@ -14,12 +14,20 @@ def embedding_var(x_k, name, params):
 
 
 class GraphEmbedding(object):
-    def __init__(self, e_k, r_k, params):
+    def __init__(self, e_k, r_k, params, training):
         self.e_embed = embedding_var(e_k, 'entity_embedding', params=params)
         self.r_embed = embedding_var(r_k, 'relation_embedding', params=params)
+        self.input_dropout = params.input_dropout
+        self.training = training
 
     def embed_entity(self, e):
-        return tf.nn.embedding_lookup(self.e_embed, e)
+        h = tf.nn.embedding_lookup(self.e_embed, e)
+        if self.input_dropout > 0:
+            h = tf.layers.dropout(h, rate=self.input_dropout, training=self.training)
+        return h
 
     def embed_relation(self, r):
-        return tf.nn.embedding_lookup(self.r_embed, r)
+        h = tf.nn.embedding_lookup(self.r_embed, r)
+        if self.input_dropout > 0:
+            h = tf.layers.dropout(h, rate=self.input_dropout, training=self.training)
+        return h

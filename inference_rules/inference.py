@@ -119,7 +119,7 @@ def inference_fn_pred(features, mode, params, e_k, r_k):
 
 
 def inference_fn(features, mode, params, e_k, r_k):
-    embedding = GraphEmbedding(e_k=e_k, r_k=r_k, params=params)
+    embedding = GraphEmbedding(e_k=e_k, r_k=r_k, params=params, training=mode == tf.estimator.ModeKeys.TRAIN)
     s = features['s']  # (n,)
     r = features['r']  # (n,)
     t = features['t']  # (n,)
@@ -177,7 +177,7 @@ def inference_fn(features, mode, params, e_k, r_k):
         ft = tf.gather_nd(ts, indices=ffassignments)
         fe = ffs[:, 0]
         fr = ffs[:, 1]
-        fq = tf.gather(r, ffassignments[:,0], axis=0)
+        fq = tf.gather(r, ffassignments[:, 0], axis=0)
 
         fscores = feature_secondary(
             ent=fe,
@@ -194,7 +194,7 @@ def inference_fn(features, mode, params, e_k, r_k):
         ss = tf.gather(s, indices=fbassignments[:, 0], axis=0)
         be = fbs[:, 0]
         br = fbs[:, 1]
-        bq = tf.gather(r, fbassignments[:,0], axis=0)
+        bq = tf.gather(r, fbassignments[:, 0], axis=0)
 
         bscores = feature_secondary(
             ent=be,

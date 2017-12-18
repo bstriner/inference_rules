@@ -56,9 +56,10 @@ def get_hparams(model_dir, create):
 def default_params():
     return HParams(
         enable_transe=True,
-        enable_walks1=True,
-        enable_walks2=True,
-        enable_secondary=True,
+        enable_walks1=False,
+        enable_walks2=False,
+        enable_secondary=False,
+        input_dropout=0.2,
         units=512,
         lr=0.0001,
         decay_rate=0.8,
